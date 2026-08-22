@@ -3,6 +3,14 @@
 All notable contributor- and user-visible changes to DRL-Rust will be
 documented in this file.
 
+## [0.2.12]
+
+- Added fail-closed browser-save recovery: malformed, unsupported, oversized,
+  and replay-invalid tokens are recorded in a bounded rejected-save slot and
+  removed from the active load path when storage permits.
+- Kept boot, load, and restart playable when storage cleanup fails; explicit
+  replay-compatible format migration remains open.
+
 ## [0.2.11]
 
 - Added renderer-neutral particle-decal draw planning with opaque,

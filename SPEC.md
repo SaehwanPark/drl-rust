@@ -1,7 +1,7 @@
 # Specification
 
 Last reviewed: 2026-08-22
-Current project version: `0.2.11`
+Current project version: `0.2.12`
 
 The [Roadmap](docs/DRL-Rust_Project_Roadmap.md) owns overall milestone scope,
 ordering, and delivery tracking. This file expands **exactly one active
@@ -23,76 +23,65 @@ criteria, and verification boundaries.
 
 ---
 
-## 2. Active Implementation Slice: M8 Particle-Decal Renderer Integration
+## 2. Active Implementation Slice: M10 Browser-Save Corruption Recovery
 
 ### 2.1 Scope & Objective
 
-Connect retained particle decal requests from `ParticleDecalStore` into the
-browser WebGPU rendering pipeline. The renderer consumes stored decal entries
-in deterministic insertion order and maps caller-supplied decal sprite
-identifiers to atlas draw passes without adding map ownership, particle
-spawning, simulation commands, or browser timing to the store or simulation
-core.
+Make rejected browser save data recoverable without silently discarding it.
+Invalid, unsupported, oversized, or replay-invalid command-history tokens are
+quarantined in a bounded browser-owned slot, removed from the active load path,
+and reported while the live session remains playable. Explicit version-aware
+migration remains a future slice.
 
 ### 2.2 Predecessor Foundation (Delivered Slices)
 
-1. **Decal Placement & Eligibility (v0.2.6–v0.2.8)**:
-   - `particle_decal_cell_at_rounded_world`: Converts world coordinates
-     `[i32; 2]` using legacy 16px offset and 32px cell division into 1-based
-     cells.
-   - `particle_decal_placement_at_rounded_world`: Retains both 1-based cell
-     and derived pixel offset.
-   - `particle_decal_cell_is_eligible`: Pure boolean check requiring cell to be
-     in bounds, non-liquid, and non-blocking.
-2. **Decal Insertion Request (v0.2.9)**:
-   - `ParticleDecalInsertion`: Combines accepted `ParticleDecalPlacement` with
-     caller-provided decal sprite ID (`u32`). Pure, renderer-neutral request.
-3. **Decal Storage Boundary (v0.2.10)**:
-   - `ParticleDecalStore::new(capacity)`: Initializes caller-owned storage with
-     bounded capacity.
-   - `try_insert`: Appends an insertion request preserving insertion order and
-     duplicates; returns `CapacityExceeded` when full without mutating prior
-     entries.
-   - `entries()`: Exposes retained requests in deterministic order.
+1. **Fixed-session snapshot (v0.2.11)**:
+   - `BrowserSession::snapshot_token` encodes accepted semantic commands from
+     the fixed M4 session.
+   - `restore_snapshot` decodes and replays into a fresh session before commit,
+     so failed restores cannot partially mutate active state.
+2. **Storage boundary (v0.2.11)**:
+   - WASM `localStorage` helpers save, load, and clear one namespaced token.
+   - Accepted commands autosave best-effort and report storage failures without
+     rejecting gameplay.
 
 ### 2.3 Present Slice Acceptance Criteria
 
-- [x] **Deterministic Consumption**: Read requests from
-  `ParticleDecalStore::entries()` in strict insertion order without altering
-  duplicate entries; requests outside the visible viewport or without a
-  caller-provided sprite descriptor are omitted without changing the store.
-  Sprite IDs remain opaque caller-resolved handles (the legacy convention is
-  a packed layer/cell handle), and stored pixel placement is retained for
-  sub-cell draw geometry. The caller also supplies each decal's lighting band;
-  the renderer does not infer hidden visibility.
-- [x] **Renderer Decoupling**: Keep sprite texture lookup, layer resolution, and
-  WebGPU resource binding strictly within `drl-render` and `drl-web`.
-- [x] **Simulation Independence**: Ensure decal rendering does not access
-  `World`, modify simulation state, spawn commands, or alter PRNG streams.
-- [x] **Native Contract Tests**: Add focused unit tests verifying decal draw
-  generation from store entries, insertion order, duplicate retention,
-  viewport filtering, unknown-sprite omission, and store immutability.
-- [x] **Browser Consumption**: Include the renderer-neutral decal plan in the
-  existing textured WebGPU pass using the same source-specific bindings as
-  scene sprites.
-- [ ] **Capture Gate**: Keep full visual and display parity gated on approved
-  reference captures (`NOT_RUN` on macOS arm64).
+- [x] **Fail-closed restore**: Invalid snapshot data leaves the active
+  `BrowserSession` unchanged.
+- [x] **Bounded quarantine**: Rejected values are recorded in a separate
+  bounded diagnostic slot, then removed from the active storage key when the
+  browser permits both operations.
+- [x] **Playable recovery**: Boot and explicit load report rejection and keep
+  renderer, input, and simulation available even when storage recovery fails.
+- [x] **Native contract tests**: Cover bounded quarantine records and active
+  session immutability after malformed restore.
+- [ ] **Migration gate**: Unknown versions/content remain rejected; an
+  explicit replay-compatible migration table is future work.
 
 ### 2.4 Pure Contract
 
-- **Input**: `&ParticleDecalStore` entries, visible viewport bounds, and atlas
-  sprite descriptors. The descriptor table resolves opaque caller-provided
-  sprite IDs; the store does not infer an atlas or hard-code blood slots.
-- **Output**: Render-ready decal draw plan or vertex buffer inputs, preserving
-  request order and duplicates for accepted visible entries.
+- **Input**: A browser-owned snapshot token and the current fixed-session
+  `BrowserSession`.
+- **Output**: Either a transactionally restored session or a bounded rejected
+  record plus a recoverable status; no invalid token is replayed.
 - **Ownership Boundary**:
-  - `drl-render` owns draw planning and UV coordinate generation.
-  - `drl-web` owns WebGPU pipeline bindings and texture sampling.
-  - `drl-core` remains completely unaware of decal storage and rendering.
+  - `drl-web` owns token storage, quarantine, and future migration policy.
+  - `drl-core` remains authoritative for replayed simulation semantics.
+  - JavaScript receives status text only, never authoritative game state.
 
 ---
 
 ## 3. Recent Delivered Slices
+
+### M10 — Browser-Save Corruption Recovery (`VERSION` 0.2.12)
+
+- [x] Quarantined malformed, unsupported, oversized, and replay-invalid save
+  values in a bounded browser-owned diagnostic slot.
+- [x] Cleared rejected active values when storage permits and kept boot/load
+  playable when storage access or cleanup fails.
+- [x] Preserved transactional restore and tested active-session immutability.
+- [ ] Explicit replay-compatible migration for recognized older formats.
 
 ### M8 — Particle-Decal Renderer Integration (`VERSION` 0.2.11)
 
@@ -214,7 +203,7 @@ core.
 
 ## 6. Verification Gates
 
-### Verified Baseline (`VERSION` 0.2.11)
+### Verified Baseline (`VERSION` 0.2.12)
 
 - [x] `sh scripts/check-repository.sh` — Full repository test suite, formatting,
   clippy, and harness checks.

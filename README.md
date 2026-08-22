@@ -31,7 +31,7 @@ replays, and regression testing.
     shot accuracy, damage, kill, pickup, and item-use totals/rates without
     inferring balance conclusions.
 - Versioned delivery:
-  - `VERSION` is the canonical `x.y.z` project value (currently `0.2.11`),
+  - `VERSION` is the canonical `x.y.z` project value (currently `0.2.12`),
     projected into Cargo, MCP, and release manifests; the agent harness rejects
     invalid code-change transitions and ignores document/setting-only diffs.
 - Browser and presentation slice:
@@ -51,8 +51,8 @@ replays, and regression testing.
     BrowserSession-to-WebGPU decal consumption without claiming full backend
     fidelity.
 - Staged work:
-  - Full audiovisual equivalence, broader content migration, PWA persistence,
-    and support for other browsers remain roadmap work.
+  - Full audiovisual equivalence, broader content migration, offline PWA
+    acceptance, and support for other browsers remain roadmap work.
   - Release builds emit a hashed static-bundle manifest with graphics rights
     metadata; signing and offline/cross-browser acceptance remain open.
   - Placeholder M7 atlas rectangles are not a fidelity claim.
@@ -141,10 +141,11 @@ legacy graphics metadata; it is not a dependency of the core.
   - Browser session, fair observation boundary, validated texture loading,
     renderer-owned WebGPU uploads, and the partial textured pass.
   - Animation playback, bounded scheduling, fixed-session snapshots,
-    best-effort localStorage, generated-bundle service-worker cache, and the
-    project-version/source-revision cache policy and manifest digest sidecar
-    recorded by release manifests, with a mocked service-worker lifecycle
-    contract and source-identity audit.
+    best-effort localStorage, bounded rejected-save quarantine,
+    generated-bundle service-worker cache, and the project-version/source-
+    revision cache policy and manifest digest sidecar recorded by release
+    manifests, with a mocked service-worker lifecycle contract and source-
+    identity audit.
   - Local accessible browser-support/startup diagnostics with recovery guidance;
     no telemetry or untested-browser support claim.
   - Static shell accessibility audit for names, labels, focus, and live regions;

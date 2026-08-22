@@ -549,6 +549,7 @@ pub(crate) mod wasm {
   }
 
   const SAVE_STORAGE_KEY: &str = "drl-rust:m4-session:v1";
+  const REJECTED_SAVE_STORAGE_KEY: &str = "drl-rust:m4-session:v1:rejected";
 
   fn browser_storage() -> Result<Storage, SnapshotError> {
     let window = web_sys::window()
@@ -572,6 +573,36 @@ pub(crate) mod wasm {
     browser_storage()?
       .remove_item(SAVE_STORAGE_KEY)
       .map_err(|error| SnapshotError::Initialization(format!("clear failed: {error:?}")))
+  }
+
+  fn remove_rejected_session() -> Result<(), SnapshotError> {
+    browser_storage()?
+      .remove_item(REJECTED_SAVE_STORAGE_KEY)
+      .map_err(|error| SnapshotError::Initialization(format!("quarantine clear failed: {error:?}")))
+  }
+
+  fn quarantine_persisted_session(token: &str, error: &SnapshotError) -> Result<(), SnapshotError> {
+    let storage = browser_storage()?;
+    let record = persistence::encode_quarantine_record(token, error);
+    storage
+      .set_item(REJECTED_SAVE_STORAGE_KEY, &record)
+      .map_err(|storage_error| {
+        SnapshotError::Initialization(format!("quarantine write failed: {storage_error:?}"))
+      })?;
+    storage
+      .remove_item(SAVE_STORAGE_KEY)
+      .map_err(|storage_error| {
+        SnapshotError::Initialization(format!("active save clear failed: {storage_error:?}"))
+      })
+  }
+
+  fn rejected_save_message(token: &str, error: &SnapshotError) -> String {
+    match quarantine_persisted_session(token, error) {
+      Ok(()) => format!(" Saved session ignored ({error}); rejected save quarantined."),
+      Err(recovery_error) => {
+        format!(" Saved session ignored ({error}); rejected save may remain ({recovery_error}).")
+      }
+    }
   }
 
   fn append_persistence_warning(status: String, warning: Option<String>) -> String {
@@ -1472,7 +1503,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let restore_message = match read_persisted_session() {
       Ok(Some(token)) => match session.restore_snapshot(&token) {
         Ok(()) => " Restored the saved session.".to_string(),
-        Err(error) => format!(" Saved session ignored ({error})."),
+        Err(error) => rejected_save_message(&token, &error),
       },
       Ok(None) => String::new(),
       Err(error) => format!(" Saved session unavailable ({error})."),
@@ -1706,6 +1737,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
               " Save clear warning: the previous save may remain ({error}); use Clear Save to retry."
             )
           });
+          let quarantine_warning = remove_rejected_session().err().map(|error| {
+            format!(" Rejected-save quarantine clear warning: {error}; use Clear Save to retry.")
+          });
           ANIMATION_CLOCK.with(|clock| clock.borrow_mut().reset());
           let observation = session.observation();
           if let Some(document) = web_sys::window().and_then(|window| window.document()) {
@@ -1717,6 +1751,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             session.particle_decal_sprites(),
           );
           let status = "Restarted deterministic M4 session.".to_string();
+          let clear_warning = clear_warning.or(quarantine_warning);
           if let Some(warning) = clear_warning.as_deref()
             && let Some(document) = web_sys::window().and_then(|window| window.document())
           {
@@ -1778,16 +1813,21 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         }
         "Session loaded from this device.".to_string()
       }
-      Err(error) => format!("Load rejected: {error}"),
+      Err(error) => rejected_save_message(&token, &error),
     }
   }
 
   /// Removes the local save without changing the active simulation.
   #[wasm_bindgen]
   pub fn clear_save() -> String {
-    match remove_persisted_session() {
-      Ok(()) => "Saved session cleared.".to_string(),
-      Err(error) => error.to_string(),
+    let active_error = remove_persisted_session().err();
+    let quarantine_error = remove_rejected_session().err();
+    match (active_error, quarantine_error) {
+      (None, None) => "Saved session cleared.".to_string(),
+      (Some(error), None) | (None, Some(error)) => error.to_string(),
+      (Some(active), Some(quarantine)) => {
+        format!("Save clear failed: {active}; {quarantine}")
+      }
     }
   }
 
@@ -2062,6 +2102,28 @@ mod tests {
     assert_eq!(
       session.restore_snapshot(&oversized),
       Err(SnapshotError::TooLarge)
+    );
+  }
+
+  #[test]
+  fn rejected_snapshot_keeps_the_active_session_unchanged() {
+    let mut session = BrowserSession::new().expect("fixed session");
+    session
+      .submit(Command::Move(Direction::East))
+      .expect("legal command");
+    let before_observation = session.observation();
+    let before_replay = session.replay_log();
+    let before_token = session.snapshot_token().expect("snapshot encoding");
+
+    assert_eq!(
+      session.restore_snapshot("DRL-RUST-BROWSER-SAVE/1:fixed-m4-v1:w;;p"),
+      Err(SnapshotError::Malformed)
+    );
+    assert_eq!(session.observation(), before_observation);
+    assert_eq!(session.replay_log(), before_replay);
+    assert_eq!(
+      session.snapshot_token().expect("snapshot encoding"),
+      before_token
     );
   }
 

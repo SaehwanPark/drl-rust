@@ -7,6 +7,8 @@ const SNAPSHOT_VERSION: &str = "1";
 const SNAPSHOT_CONTENT: &str = "fixed-m4-v1";
 const SNAPSHOT_MAX_BYTES: usize = 16 * 1024;
 const SNAPSHOT_MAX_COMMANDS: usize = 4096;
+#[cfg(any(target_arch = "wasm32", test))]
+const QUARANTINE_PREFIX: &str = "DRL-RUST-BROWSER-REJECTED/1:";
 
 /// Errors returned when a browser-session snapshot cannot be decoded or replayed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -197,4 +199,44 @@ pub(crate) fn decode_snapshot(token: &str) -> Result<Vec<Command>, SnapshotError
     return Err(SnapshotError::TooLarge);
   }
   commands.map(decode_command).collect()
+}
+
+/// Builds one bounded diagnostic record for a rejected browser save.
+///
+/// The record is never accepted by [`decode_snapshot`]. Keeping the original
+/// value when it fits gives a future explicit migration a chance to inspect
+/// it, while oversized values are represented by their size rather than
+/// allowing localStorage recovery data to grow without bound.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn encode_quarantine_record(token: &str, error: &SnapshotError) -> String {
+  let error_text: String = error.to_string().chars().take(256).collect();
+  let header = format!(
+    "{QUARANTINE_PREFIX}bytes={};error={error_text}\n",
+    token.len()
+  );
+  if header.len().saturating_add(token.len()) <= SNAPSHOT_MAX_BYTES {
+    return format!("{header}{token}");
+  }
+  format!("{header}<token omitted: exceeds {SNAPSHOT_MAX_BYTES} bytes>")
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn quarantine_record_preserves_small_rejected_tokens() {
+    let record = encode_quarantine_record("not-a-snapshot", &SnapshotError::Malformed);
+    assert!(record.starts_with("DRL-RUST-BROWSER-REJECTED/1:bytes=14;error="));
+    assert!(record.ends_with("\nnot-a-snapshot"));
+    assert!(record.len() <= SNAPSHOT_MAX_BYTES);
+  }
+
+  #[test]
+  fn quarantine_record_bounds_oversized_tokens() {
+    let token = "x".repeat(SNAPSHOT_MAX_BYTES * 2);
+    let record = encode_quarantine_record(&token, &SnapshotError::TooLarge);
+    assert!(record.contains("token omitted"));
+    assert!(record.len() <= SNAPSHOT_MAX_BYTES);
+  }
 }

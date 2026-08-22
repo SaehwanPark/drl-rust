@@ -1,7 +1,7 @@
 # Architecture
 
 Last reviewed: 2026-08-22
-Current project version: `0.2.11`
+Current project version: `0.2.12`
 
 Status: Verified for current deterministic headless core, MCP tooling, and
 browser-playable WebGPU slice; full audiovisual parity remains planned.
@@ -145,6 +145,8 @@ Presentation Boundary
   - Browser animation loop: `requestAnimationFrame` driving elapsed rendering
     with `visibilitychange` clock rebasing.
   - State Persistence: `SessionSnapshot` codec with localStorage save/load.
+    Rejected values are quarantined in a bounded browser-owned slot before
+    active storage cleanup; future version migration is explicit and gated.
   - Release Packaging: Service worker caching, release manifest validation,
     digest sidecars, and checkout-identity verification.
   - Accessibility: Accessible DOM shell, keyboard/numpad navigation, and
